@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Any
 
 from pytgcalls import GroupCall
 
@@ -6,7 +6,7 @@ from . import client
 from .. import queues
 
 instances: Dict[int, GroupCall] = {}
-active_chats: Dict[int, Dict[str, bool]] = {}
+active_chats: Dict[int, Dict[str, Any]] = {}
 
 
 def init_instance(chat_id: int):
@@ -22,7 +22,15 @@ def init_instance(chat_id: int):
         if queues.is_empty(chat_id):
             await stop(chat_id)
         else:
-            instance.input_filename = queues.get(chat_id)['file']
+            next_item = queues.get(chat_id)
+            # next_item expected to be dict with 'file' and optional metadata
+            instance.input_filename = next_item.get('file') if isinstance(next_item, dict) else next_item
+            # update current metadata
+            if chat_id in active_chats and isinstance(next_item, dict):
+                active_chats[chat_id]['current'] = {
+                    'title': next_item.get('title'),
+                    'by': next_item.get('by'),
+                }
 
 
 def remove(chat_id: int):
@@ -43,7 +51,7 @@ def get_instance(chat_id: int) -> GroupCall:
 
 async def start(chat_id: int):
     await get_instance(chat_id).start(chat_id)
-    active_chats[chat_id] = {'playing': True, 'muted': False}
+    active_chats[chat_id] = {'playing': True, 'muted': False, 'current': None}
 
 
 async def stop(chat_id: int):
@@ -53,10 +61,15 @@ async def stop(chat_id: int):
         del active_chats[chat_id]
 
 
-async def set_stream(chat_id: int, file: str):
+async def set_stream(chat_id: int, file: str, metadata: Dict[str, str] = None):
     if chat_id not in active_chats:
         await start(chat_id)
     get_instance(chat_id).input_filename = file
+    if chat_id in active_chats:
+        active_chats[chat_id]['current'] = {
+            'title': metadata.get('title') if metadata else None,
+            'by': metadata.get('by') if metadata else None,
+        }
 
 
 def pause(chat_id: int) -> bool:
